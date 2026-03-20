@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import argparse
+import sqlite3
+from collections import Counter
 
 from app.config import SCOPES, load_settings
 from app.db import SQLiteInventory
 from app.extractor import (
     normalize_message,
     now_utc_iso,
-    summarize_top_domains,
-    summarize_top_labels,
+    update_summary_counts,
 )
 from app.gmail_client import GmailClient
 from app.logger import setup_logger
@@ -41,7 +42,11 @@ def run() -> int:
     if args.full_scan and args.max_results is not None:
         parser.error("Usa solo uno: --full-scan o --max-results.")
 
-    settings = load_settings()
+    try:
+        settings = load_settings()
+    except ValueError as exc:
+        parser.error(str(exc))
+
     logger = setup_logger(settings.log_file, settings.log_level)
 
     if args.full_scan:
@@ -59,24 +64,31 @@ def run() -> int:
 
     try:
         service = gmail.build_service()
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, RuntimeError) as exc:
         logger.error(str(exc))
         print(f"ERROR: {exc}")
         return 2
 
-    conn = inventory.connect()
-    inventory.init_schema(conn)
-
-    started_at = now_utc_iso()
-    run_id = inventory.create_run(conn, started_at=started_at, mode=mode)
+    try:
+        conn = inventory.connect()
+        inventory.init_schema(conn)
+        started_at = now_utc_iso()
+        run_id = inventory.create_run(conn, started_at=started_at, mode=mode)
+    except sqlite3.Error as exc:
+        logger.error("No fue posible inicializar SQLite: %s", exc)
+        print(f"ERROR: No fue posible inicializar SQLite: {exc}")
+        return 2
 
     scanned = 0
     saved = 0
     errors = 0
-    normalized_records: list[dict] = []
+    run_status = "completed"
+    fatal_error: str | None = None
 
     batch_size = 100
-    pending_writes = 0
+    pending_records: list[dict] = []
+    domain_counts: Counter[str] = Counter()
+    label_counts: Counter[str] = Counter()
 
     try:
         for message_id in gmail.iter_message_ids(service, max_results=max_results):
@@ -84,34 +96,75 @@ def run() -> int:
             try:
                 raw = gmail.get_message_metadata(service, message_id)
                 normalized = normalize_message(raw, processed_at=now_utc_iso())
-                inventory.upsert_message(conn, normalized)
-                saved += 1
-                normalized_records.append(normalized)
-                pending_writes += 1
-                if pending_writes >= batch_size:
+                update_summary_counts(normalized, domain_counts, label_counts)
+                pending_records.append(normalized)
+                if len(pending_records) >= batch_size:
+                    inventory.upsert_messages(conn, pending_records)
                     conn.commit()
-                    pending_writes = 0
+                    saved += len(pending_records)
+                    pending_records.clear()
             except Exception as exc:  # noqa: BLE001
                 errors += 1
                 logger.exception("Error procesando message_id=%s: %s", message_id, exc)
 
             if scanned % settings.progress_every == 0:
-                logger.info("Progreso: escaneados=%s guardados=%s errores=%s", scanned, saved, errors)
+                logger.info(
+                    "Progreso run_id=%s escaneados=%s guardados=%s pendientes=%s errores=%s",
+                    run_id,
+                    scanned,
+                    saved,
+                    len(pending_records),
+                    errors,
+                )
+    except Exception as exc:  # noqa: BLE001
+        run_status = "failed"
+        fatal_error = str(exc)
+        logger.exception("Fallo fatal durante el inventario run_id=%s: %s", run_id, exc)
     finally:
-        if pending_writes > 0:
-            conn.commit()
-        finished_at = now_utc_iso()
-        inventory.finalize_run(conn, run_id, finished_at, scanned, saved, errors)
-        conn.close()
+        try:
+            if pending_records:
+                inventory.upsert_messages(conn, pending_records)
+                conn.commit()
+                saved += len(pending_records)
+                pending_records.clear()
+        except Exception as exc:  # noqa: BLE001
+            run_status = "failed"
+            fatal_error = fatal_error or f"Error persistiendo batch final: {exc}"
+            logger.exception("No fue posible persistir el batch final run_id=%s: %s", run_id, exc)
+        finally:
+            if run_status != "failed" and errors > 0:
+                run_status = "completed_with_errors"
 
-    top_domains = summarize_top_domains(normalized_records, n=10)
-    top_labels = summarize_top_labels(normalized_records, n=10)
+            finished_at = now_utc_iso()
+            try:
+                inventory.finalize_run(
+                    conn,
+                    run_id,
+                    finished_at,
+                    scanned,
+                    saved,
+                    errors,
+                    status=run_status,
+                    fatal_error=fatal_error,
+                )
+            except sqlite3.Error as exc:
+                run_status = "failed"
+                fatal_error = fatal_error or f"No fue posible registrar el cierre en SQLite: {exc}"
+                logger.exception("No fue posible registrar el cierre de la run_id=%s: %s", run_id, exc)
+            finally:
+                conn.close()
+
+    top_domains = domain_counts.most_common(10)
+    top_labels = label_counts.most_common(10)
 
     print("\n===== RESUMEN RUN =====")
     print(f"Run ID: {run_id}")
+    print(f"Estado: {run_status}")
     print(f"Total escaneados: {scanned}")
     print(f"Total guardados SQLite: {saved}")
     print(f"Total errores: {errors}")
+    if fatal_error:
+        print(f"Error fatal: {fatal_error}")
 
     print("\nTop 10 dominios remitentes:")
     for domain, count in top_domains:
@@ -121,8 +174,15 @@ def run() -> int:
     for label, count in top_labels:
         print(f"- {label}: {count}")
 
-    logger.info("Run finalizado run_id=%s scanned=%s saved=%s errors=%s", run_id, scanned, saved, errors)
-    return 0 if errors == 0 else 1
+    logger.info(
+        "Run finalizado run_id=%s status=%s scanned=%s saved=%s errors=%s",
+        run_id,
+        run_status,
+        scanned,
+        saved,
+        errors,
+    )
+    return 0 if run_status == "completed" else 1
 
 
 if __name__ == "__main__":

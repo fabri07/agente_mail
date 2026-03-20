@@ -93,6 +93,8 @@ Variables principales:
 - `LOG_FILE` (default: `logs/run.log`)
 - `PROGRESS_EVERY` (default: `100`)
 
+> `PROGRESS_EVERY` debe ser un entero positivo. El token OAuth se guarda con permisos restrictivos cuando el sistema operativo lo permite.
+
 ## 5) Primera ejecución (autenticación OAuth + prueba)
 
 Comando recomendado para prueba inicial:
@@ -107,6 +109,7 @@ Qué pasa en esta ejecución:
 - Se genera `token.json` al autenticar correctamente.
 - Se crea la base SQLite `db/gmail_agent.db` si no existe.
 - Se crean tablas `messages` y `runs` si no existen.
+- La tabla `runs` registra estado final (`completed`, `completed_with_errors`, `failed`) y error fatal si aplica.
 - Se recorre Gmail de forma paginada y read-only.
 - El guardado en SQLite se hace en lotes para mejorar rendimiento.
 
@@ -133,6 +136,7 @@ Implementado con:
 
 - Scope OAuth único: `https://www.googleapis.com/auth/gmail.readonly`
 - Uso de endpoints de lectura (`messages.list`, `messages.get` metadata)
+- Exclusión recomendada en git para `credentials.json`, `token.json`, `.env`, bases SQLite y logs.
 - No existen llamadas a:
   - `modify`
   - `trash`

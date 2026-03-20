@@ -9,9 +9,11 @@ def setup_logger(log_file: Path, level: str = "INFO") -> logging.Logger:
 
     logger = logging.getLogger("gmail_agent")
     logger.setLevel(getattr(logging, level.upper(), logging.INFO))
+    logger.propagate = False
 
-    if logger.handlers:
-        return logger
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+        handler.close()
 
     formatter = logging.Formatter(
         fmt="%(asctime)s | %(levelname)s | %(name)s | %(message)s",

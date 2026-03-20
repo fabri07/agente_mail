@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from datetime import datetime, timezone
 from typing import Any
-
-import pandas as pd
 
 from app.utils import extract_domain, header_lookup, parse_from_header, top_n
 
@@ -27,10 +26,14 @@ def detect_attachments(payload: dict[str, Any] | None) -> int:
 def normalize_message(message: dict[str, Any], processed_at: str) -> dict[str, Any]:
     headers = message.get("payload", {}).get("headers", [])
     from_name, from_email = parse_from_header(header_lookup(headers, "From"))
+    message_id = message.get("id", "")
+
+    if not message_id:
+        raise ValueError("La respuesta de Gmail no contiene un message_id válido.")
 
     labels = message.get("labelIds", [])
     return {
-        "message_id": message.get("id", ""),
+        "message_id": message_id,
         "thread_id": message.get("threadId", ""),
         "from_email": from_email,
         "from_name": from_name,
@@ -50,6 +53,25 @@ def now_utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def update_summary_counts(
+    record: dict[str, Any],
+    domain_counts: Counter[str],
+    label_counts: Counter[str],
+) -> None:
+    domain = extract_domain(record.get("from_email", ""))
+    if domain:
+        domain_counts[domain] += 1
+
+    try:
+        labels = json.loads(record.get("label_ids", "[]"))
+    except json.JSONDecodeError:
+        labels = []
+
+    for label in labels:
+        if label:
+            label_counts[label] += 1
+
+
 def summarize_top_domains(records: list[dict[str, Any]], n: int = 10) -> list[tuple[str, int]]:
     domains = [extract_domain(record.get("from_email", "")) for record in records]
     return top_n(domains, n=n)
@@ -64,7 +86,3 @@ def summarize_top_labels(records: list[dict[str, Any]], n: int = 10) -> list[tup
             labels = []
         expanded.extend([label for label in labels if label])
     return top_n(expanded, n=n)
-
-
-def to_dataframe(records: list[dict[str, Any]]) -> pd.DataFrame:
-    return pd.DataFrame(records)

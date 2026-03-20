@@ -4,7 +4,11 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:  # pragma: no cover - fallback solo para entornos incompletos
+    def load_dotenv() -> bool:
+        return False
 
 
 @dataclass(frozen=True)
@@ -20,14 +24,30 @@ class Settings:
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
 
+def _env_path(name: str, default: str) -> Path:
+    return Path(os.getenv(name, default)).expanduser()
+
+
+def _env_positive_int(name: str, default: str) -> int:
+    raw_value = os.getenv(name, default)
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise ValueError(f"{name} debe ser un entero positivo. Valor recibido: {raw_value!r}") from exc
+
+    if value <= 0:
+        raise ValueError(f"{name} debe ser un entero positivo. Valor recibido: {raw_value!r}")
+    return value
+
+
 def load_settings() -> Settings:
     load_dotenv()
-    credentials_file = Path(os.getenv("GMAIL_CREDENTIALS_FILE", "credentials.json"))
-    token_file = Path(os.getenv("GMAIL_TOKEN_FILE", "token.json"))
-    db_path = Path(os.getenv("DB_PATH", "db/gmail_agent.db"))
-    log_file = Path(os.getenv("LOG_FILE", "logs/run.log"))
+    credentials_file = _env_path("GMAIL_CREDENTIALS_FILE", "credentials.json")
+    token_file = _env_path("GMAIL_TOKEN_FILE", "token.json")
+    db_path = _env_path("DB_PATH", "db/gmail_agent.db")
+    log_file = _env_path("LOG_FILE", "logs/run.log")
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
-    progress_every = int(os.getenv("PROGRESS_EVERY", "100"))
+    progress_every = _env_positive_int("PROGRESS_EVERY", "100")
 
     return Settings(
         credentials_file=credentials_file,

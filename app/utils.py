@@ -24,7 +24,7 @@ def parse_from_header(from_header: str | None) -> tuple[str, str]:
     return name.strip(), ""
 
 
-def header_lookup(headers: list[dict], key: str) -> str:
+def header_lookup(headers: list[dict[str, str]], key: str) -> str:
     target = key.lower()
     for item in headers:
         if item.get("name", "").lower() == target:
