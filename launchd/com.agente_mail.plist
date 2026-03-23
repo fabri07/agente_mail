@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent para macOS — ejecuta el agente de email automáticamente cada día a las 20:00h.
+
+  INSTALACIÓN:
+    1. Edita las rutas PYTHON_PATH y PROJECT_DIR abajo según tu sistema.
+    2. Copia el plist a ~/Library/LaunchAgents/:
+         cp launchd/com.agente_mail.plist ~/Library/LaunchAgents/
+    3. Carga el agente:
+         launchctl load ~/Library/LaunchAgents/com.agente_mail.plist
+    4. Verifica que está activo:
+         launchctl list | grep agente_mail
+
+  CAMBIAR HORARIO:
+    - Hour: 20 = 20:00h (8 PM). Cambia al número que quieras (0-23).
+    - Minute: 0 = en punto.
+
+  PARAR / DESINSTALAR:
+    launchctl unload ~/Library/LaunchAgents/com.agente_mail.plist
+    rm ~/Library/LaunchAgents/com.agente_mail.plist
+
+  VER LOGS:
+    tail -f /tmp/agente_mail_stdout.log
+    tail -f /tmp/agente_mail_stderr.log
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.agente_mail</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <!-- EDITA ESTA RUTA: ruta al python del virtualenv -->
+        <string>/Users/fabriziosola/Downloads/agente_mail/agente_mail/.venv/bin/python</string>
+        <!-- EDITA ESTA RUTA: ruta absoluta a agent_runner.py -->
+        <string>/Users/fabriziosola/Downloads/agente_mail/agente_mail/agent_runner.py</string>
+    </array>
+
+    <!-- Directorio de trabajo del proyecto -->
+    <key>WorkingDirectory</key>
+    <string>/Users/fabriziosola/Downloads/agente_mail/agente_mail</string>
+
+    <!-- Ejecutar cada día a las 20:00h -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>20</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <!-- Logs de salida -->
+    <key>StandardOutPath</key>
+    <string>/tmp/agente_mail_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/agente_mail_stderr.log</string>
+
+    <!-- No reiniciar si falla -->
+    <key>KeepAlive</key>
+    <false/>
+
+    <!-- Variables de entorno necesarias -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/fabriziosola/Downloads/agente_mail/agente_mail/.venv/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>/Users/fabriziosola</string>
+    </dict>
+</dict>
+</plist>
