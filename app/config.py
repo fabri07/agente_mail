@@ -54,7 +54,7 @@ def load_settings() -> Settings:
     progress_every = _env_positive_int("PROGRESS_EVERY", "100")
     anthropic_api_key = os.getenv("ANTHROPIC_API_KEY", "")
     agent_session_duration = _env_positive_int("AGENT_SESSION_DURATION", "3600")
-    claude_model = os.getenv("CLAUDE_MODEL", "claude-opus-4-6")
+    claude_model = os.getenv("CLAUDE_MODEL", "claude-haiku-4-5-20251001")
 
     return Settings(
         credentials_file=credentials_file,

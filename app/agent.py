@@ -100,6 +100,12 @@ class GmailAgent:
             "clasificar, limpiar, desuscribir."
         )
 
+    def _trim_messages(self, messages: list[dict[str, Any]], keep_last: int = 10) -> list[dict[str, Any]]:
+        """Mantiene el primer mensaje (prompt inicial) + los últimos N para limitar tokens de entrada."""
+        if len(messages) <= keep_last + 1:
+            return messages
+        return [messages[0]] + messages[-(keep_last):]
+
     def run(self) -> str:
         """Ejecuta el loop del agente hasta que Claude termine o se acabe el tiempo."""
         from app.agent_tools import AGENT_TOOLS
@@ -116,11 +122,10 @@ class GmailAgent:
             try:
                 response = self.client.messages.create(
                     model=self.settings.claude_model,
-                    max_tokens=4096,
-                    thinking={"type": "adaptive"},
+                    max_tokens=2048,
                     system=SYSTEM_PROMPT,
                     tools=AGENT_TOOLS,
-                    messages=self.messages,
+                    messages=self._trim_messages(self.messages),
                 )
             except anthropic.APIError as exc:
                 logger.error("Error de API de Anthropic: %s", exc)
@@ -188,10 +193,9 @@ class GmailAgent:
             try:
                 final_response = self.client.messages.create(
                     model=self.settings.claude_model,
-                    max_tokens=2048,
+                    max_tokens=1024,
                     system=SYSTEM_PROMPT,
-                    tools=AGENT_TOOLS,
-                    messages=self.messages,
+                    messages=self._trim_messages(self.messages, keep_last=6),
                 )
                 for block in final_response.content:
                     if hasattr(block, "type") and block.type == "text":

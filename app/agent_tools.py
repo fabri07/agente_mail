@@ -271,17 +271,18 @@ class ToolExecutor:
         stats = self.db.get_inbox_stats(self.conn)
         return {"status": "ok", "stats": stats}
 
-    def _tool_sync_recent_emails(self, max_results: int = 200) -> dict:
+    def _tool_sync_recent_emails(self, max_results: int = 50) -> dict:
         from app.extractor import normalize_message
 
         synced = 0
         errors = 0
         batch: list[dict] = []
 
+        now = self._now()
         for msg_id in self.gmail.iter_message_ids(self.service, max_results=max_results):
             try:
                 raw = self.gmail.get_message_metadata(self.service, msg_id)
-                payload = normalize_message(raw)
+                payload = normalize_message(raw, now)
                 batch.append(payload)
                 if len(batch) >= 100:
                     self.db.upsert_messages(self.conn, batch)
